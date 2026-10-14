@@ -19,6 +19,14 @@ class Credentials(BaseModel):
     password: str
 
 
+class TagUpdate(BaseModel):
+    tags: list[str]
+
+
+class TitleUpdate(BaseModel):
+    title: str
+
+
 def create_app(
     service: TranscriptionService,
     auth: AuthService,
@@ -107,7 +115,11 @@ def create_app(
         if job.transcript_id:
             record = service.get_transcript(job.owner_id, job.transcript_id)
             if record is not None:
-                payload["transcript"] = _public_transcript(record, job.owner_id)
+                payload["transcript"] = _public_transcript(
+                    record,
+                    job.owner_id,
+                    summary=service.read_summary(job.owner_id, record),
+                )
         return payload
 
     @app.post("/api/transcribe")
@@ -139,7 +151,11 @@ def create_app(
         record = service.get_transcript(user.id, transcript_id)
         if record is None:
             raise HTTPException(status_code=404, detail="找不到逐字稿")
-        return _public_transcript(record, user.id)
+        return _public_transcript(
+            record,
+            user.id,
+            summary=service.read_summary(user.id, record),
+        )
 
     @app.delete("/api/transcripts/{transcript_id}")
     def delete_transcript(transcript_id: str, request: Request):
@@ -147,6 +163,28 @@ def create_app(
         if not service.delete_transcript(user.id, transcript_id):
             raise HTTPException(status_code=404, detail="找不到逐字稿")
         return {"ok": True, "id": transcript_id}
+
+    @app.put("/api/transcripts/{transcript_id}/tags")
+    def replace_transcript_tags(transcript_id: str, payload: TagUpdate, request: Request):
+        user = current_user(request)
+        try:
+            record = service.update_transcript_tags(user.id, transcript_id, payload.tags)
+        except RequestError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if record is None:
+            raise HTTPException(status_code=404, detail="找不到逐字稿")
+        return _public_transcript(record, user.id)
+
+    @app.put("/api/transcripts/{transcript_id}/title")
+    def replace_transcript_title(transcript_id: str, payload: TitleUpdate, request: Request):
+        user = current_user(request)
+        try:
+            record = service.update_transcript_title(user.id, transcript_id, payload.title)
+        except RequestError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if record is None:
+            raise HTTPException(status_code=404, detail="找不到逐字稿")
+        return _public_transcript(record, user.id)
 
     def spa():
         index = web_dir / "index.html"
@@ -202,9 +240,18 @@ def _public_user(user: User) -> dict[str, str]:
     }
 
 
-def _public_transcript(record: Transcript, owner_id: str) -> dict[str, str]:
+def _public_transcript(
+    record: Transcript,
+    owner_id: str,
+    *,
+    summary: str | None = None,
+) -> dict[str, object]:
     payload = asdict(record)
+    payload.pop("summary_filename", None)
+    payload["tags"] = list(record.tags)
     payload["json_file"] = f"{owner_id}/{record.id}.json"
+    if summary is not None:
+        payload["summary"] = summary
     return payload
 
 

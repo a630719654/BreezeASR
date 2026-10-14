@@ -1,9 +1,12 @@
+import os
+
 from breeze.api import create_app
 from breeze.asr import BreezeRecognizer
 from breeze.audio import FfmpegConverter, prefer_local_ffmpeg
 from breeze.identity.service import AuthService
 from breeze.identity.store import IdentityStore
 from breeze.jobs import MemoryJobStore
+from breeze.meeting_summary import MeetingSummaryService, OllamaChatClient
 from breeze.service import TranscriptionService
 from breeze.settings import load_settings
 from breeze.store import UserTranscriptStores
@@ -23,5 +26,13 @@ service = TranscriptionService(
     jobs=MemoryJobStore(),
     allowed_suffixes=settings.allowed_suffixes,
     max_upload_bytes=settings.max_upload_bytes,
+    summarizer=MeetingSummaryService(
+        OllamaChatClient(
+            host=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
+            model=os.environ.get("OLLAMA_MODEL", "qwen2.5"),
+            temperature=0.2,
+        )
+    ),
+    summaries_dir=settings.summaries_dir,
 )
 app = create_app(service, auth, settings.web_dir)

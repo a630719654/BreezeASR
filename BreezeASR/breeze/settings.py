@@ -21,6 +21,7 @@ class Settings:
     model_dir: Path
     ffmpeg_path: Path
     transcripts_dir: Path
+    summaries_dir: Path
     identity_dir: Path
     web_dir: Path
     max_upload_bytes: int
@@ -40,6 +41,9 @@ def load_settings() -> Settings:
         ),
         transcripts_dir=Path(
             os.environ.get("BREEZEASR_TRANSCRIPTS_DIR", root / "data" / "transcripts")
+        ),
+        summaries_dir=Path(
+            os.environ.get("BREEZEASR_SUMMARIES_DIR", root / "data" / "summaries")
         ),
         identity_dir=Path(
             os.environ.get("BREEZEASR_IDENTITY_DIR", root / "data" / "identity")

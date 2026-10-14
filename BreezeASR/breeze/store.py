@@ -79,9 +79,23 @@ class JsonTranscriptStore:
                 model=str(payload["model"]),
                 device=str(payload["device"]),
                 created_at=str(payload["created_at"]),
+                title=str(payload.get("title") or "").strip(),
+                tags=_read_tags(payload),
+                summary_filename=str(payload.get("summary_filename") or ""),
             )
         except (OSError, json.JSONDecodeError, KeyError, TypeError):
             return None
         if record.id != path.stem:
             return None
         return record
+
+
+def _read_tags(payload: dict) -> tuple[str, ...]:
+    raw = payload.get("tags", [])
+    if not isinstance(raw, list):
+        return ()
+    tags: list[str] = []
+    for item in raw:
+        if isinstance(item, str) and item.strip():
+            tags.append(item.strip())
+    return tuple(tags)

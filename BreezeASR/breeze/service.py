@@ -1,18 +1,23 @@
 import threading
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from breeze.jobs import Job
 from breeze.models import Transcript
+from breeze.meeting_summary.errors import SummaryError
 from breeze.ports import (
     AudioConverter,
     JobRepository,
+    MeetingSummarizer,
     SpeechRecognizer,
     TranscriptStoreFactory,
 )
+from breeze.tags import TagError, normalize_tags
+from breeze.titles import TitleError, normalize_title
 
 ProgressFn = Callable[[str, int, str], None]
 
@@ -35,6 +40,8 @@ class TranscriptionService:
         *,
         allowed_suffixes: frozenset[str],
         max_upload_bytes: int,
+        summarizer: MeetingSummarizer | None = None,
+        summaries_dir: Path | None = None,
     ):
         self._converter = converter
         self._recognizer = recognizer
@@ -42,6 +49,8 @@ class TranscriptionService:
         self._jobs = jobs
         self._allowed_suffixes = allowed_suffixes
         self._max_upload_bytes = max_upload_bytes
+        self._summarizer = summarizer
+        self._summaries_dir = summaries_dir
 
     def status(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -98,8 +107,49 @@ class TranscriptionService:
     def get_transcript(self, owner_id: str, transcript_id: str) -> Transcript | None:
         return self._stores.for_user(owner_id).get(transcript_id)
 
+    def read_summary(self, owner_id: str, record: Transcript) -> str:
+        name = Path(record.summary_filename).name
+        if not name or name != record.summary_filename or self._summaries_dir is None:
+            return ""
+        path = self._summaries_dir / owner_id / name
+        if not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8")
+
     def delete_transcript(self, owner_id: str, transcript_id: str) -> bool:
         return self._stores.for_user(owner_id).delete(transcript_id)
+
+    def update_transcript_tags(
+        self,
+        owner_id: str,
+        transcript_id: str,
+        tags: object,
+    ) -> Transcript | None:
+        try:
+            cleaned = normalize_tags(tags)
+        except TagError as exc:
+            raise RequestError(str(exc)) from exc
+        store = self._stores.for_user(owner_id)
+        record = store.get(transcript_id)
+        if record is None:
+            return None
+        return store.save(replace(record, tags=tuple(cleaned)))
+
+    def update_transcript_title(
+        self,
+        owner_id: str,
+        transcript_id: str,
+        title: object,
+    ) -> Transcript | None:
+        try:
+            cleaned = normalize_title(title)
+        except TitleError as exc:
+            raise RequestError(str(exc)) from exc
+        store = self._stores.for_user(owner_id)
+        record = store.get(transcript_id)
+        if record is None:
+            return None
+        return store.save(replace(record, title=cleaned))
 
     def _validate_upload(self, filename: str, content: bytes) -> tuple[str, str]:
         safe_name = Path(filename).name or "audio"
@@ -146,9 +196,25 @@ class TranscriptionService:
                 model=recognition.model,
                 device=recognition.device,
                 created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+                tags=(),
             )
         )
-        report("done", 100, "辨識完成。")
+        if self._summarizer is None or self._summaries_dir is None:
+            report("done", 100, "辨識完成。")
+            return record
+        report("summarizing", 95, "正在用本機 LLM 整理會議摘要。")
+        try:
+            summary_path = self._summarizer.summarize_transcript(
+                record,
+                self._summaries_dir / owner_id,
+            )
+        except SummaryError as exc:
+            report("done", 100, f"辨識完成。摘要未產生：{exc}")
+            return record
+        record = self._stores.for_user(owner_id).save(
+            replace(record, summary_filename=summary_path.name),
+        )
+        report("done", 100, f"辨識完成。會議紀錄已存成 {summary_path.name}。")
         return record
 
     def _run_job(

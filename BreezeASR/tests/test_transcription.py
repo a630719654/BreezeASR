@@ -136,6 +136,145 @@ class TranscriptionFlowTest(unittest.TestCase):
             self.assertEqual(job.status_code, 200)
             self.assertEqual(bob.get(f"/api/jobs/{job.json()['id']}").status_code, 404)
 
+            tagged = alice.put(
+                f"/api/transcripts/{record_id}/tags",
+                json={"tags": ["會議"]},
+            )
+            self.assertEqual(tagged.status_code, 200, tagged.text)
+            self.assertEqual(bob.put(
+                f"/api/transcripts/{record_id}/tags",
+                json={"tags": ["偷改"]},
+            ).status_code, 404)
+
+
+class TranscriptTagsTest(unittest.TestCase):
+    def test_tags_default_empty_and_can_be_replaced(self):
+        with TemporaryDirectory() as temporary:
+            _settings, _auth, _service, root, app = build_app(temporary)
+            client = authed_client(app)
+            created = client.post(
+                "/api/transcribe",
+                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+            )
+            self.assertEqual(created.status_code, 200, created.text)
+            record_id = created.json()["id"]
+            self.assertEqual(created.json()["tags"], [])
+
+            updated = client.put(
+                f"/api/transcripts/{record_id}/tags",
+                json={"tags": [" 會議 ", "會議", "Q1"]},
+            )
+            self.assertEqual(updated.status_code, 200, updated.text)
+            self.assertEqual(updated.json()["tags"], ["會議", "Q1"])
+            listed = client.get("/api/transcripts").json()
+            self.assertEqual(listed[0]["tags"], ["會議", "Q1"])
+
+            me = client.get("/api/auth/me").json()
+            saved = json.loads(
+                (root / "transcripts" / me["id"] / f"{record_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(saved["tags"], ["會議", "Q1"])
+
+    def test_old_json_without_tags_still_loads(self):
+        with TemporaryDirectory() as temporary:
+            _settings, _auth, _service, root, app = build_app(temporary)
+            client = authed_client(app)
+            created = client.post(
+                "/api/transcribe",
+                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+            )
+            record_id = created.json()["id"]
+            me = client.get("/api/auth/me").json()
+            path = root / "transcripts" / me["id"] / f"{record_id}.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload.pop("tags", None)
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            listed = client.get("/api/transcripts")
+            self.assertEqual(listed.status_code, 200)
+            self.assertEqual(listed.json()[0]["tags"], [])
+
+    def test_invalid_tags_are_rejected(self):
+        with TemporaryDirectory() as temporary:
+            _settings, _auth, _service, _root, app = build_app(temporary)
+            client = authed_client(app)
+            created = client.post(
+                "/api/transcribe",
+                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+            )
+            record_id = created.json()["id"]
+            bad = client.put(
+                f"/api/transcripts/{record_id}/tags",
+                json={"tags": ["含/斜線"]},
+            )
+            self.assertEqual(bad.status_code, 400)
+
+
+class TranscriptTitleTest(unittest.TestCase):
+    def test_title_defaults_empty_and_can_be_replaced(self):
+        with TemporaryDirectory() as temporary:
+            _settings, _auth, _service, root, app = build_app(temporary)
+            client = authed_client(app)
+            created = client.post(
+                "/api/transcribe",
+                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+            )
+            self.assertEqual(created.status_code, 200, created.text)
+            record_id = created.json()["id"]
+            self.assertEqual(created.json()["title"], "")
+
+            updated = client.put(
+                f"/api/transcripts/{record_id}/title",
+                json={"title": "  週會紀錄  "},
+            )
+            self.assertEqual(updated.status_code, 200, updated.text)
+            self.assertEqual(updated.json()["title"], "週會紀錄")
+            self.assertEqual(updated.json()["source_filename"], "hello.wav")
+            listed = client.get("/api/transcripts").json()
+            self.assertEqual(listed[0]["title"], "週會紀錄")
+
+            me = client.get("/api/auth/me").json()
+            saved = json.loads(
+                (root / "transcripts" / me["id"] / f"{record_id}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(saved["title"], "週會紀錄")
+
+    def test_old_json_without_title_still_loads(self):
+        with TemporaryDirectory() as temporary:
+            _settings, _auth, _service, root, app = build_app(temporary)
+            client = authed_client(app)
+            created = client.post(
+                "/api/transcribe",
+                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+            )
+            record_id = created.json()["id"]
+            me = client.get("/api/auth/me").json()
+            path = root / "transcripts" / me["id"] / f"{record_id}.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload.pop("title", None)
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            listed = client.get("/api/transcripts")
+            self.assertEqual(listed.status_code, 200)
+            self.assertEqual(listed.json()[0]["title"], "")
+
+    def test_blank_title_is_rejected(self):
+        with TemporaryDirectory() as temporary:
+            _settings, _auth, _service, _root, app = build_app(temporary)
+            client = authed_client(app)
+            created = client.post(
+                "/api/transcribe",
+                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+            )
+            record_id = created.json()["id"]
+            bad = client.put(
+                f"/api/transcripts/{record_id}/title",
+                json={"title": "   "},
+            )
+            self.assertEqual(bad.status_code, 400)
+
 
 class RealAppSmokeTest(unittest.TestCase):
     def test_page_and_health_do_not_load_model(self):

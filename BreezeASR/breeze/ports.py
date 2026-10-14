@@ -35,6 +35,10 @@ class TranscriptRepository(Protocol):
     def delete(self, transcript_id: str) -> bool: ...
 
 
+class MeetingSummarizer(Protocol):
+    def summarize_transcript(self, transcript: Transcript, output_dir: Path) -> Path: ...
+
+
 class JobRepository(Protocol):
     def create(self, job: Job) -> Job: ...
 

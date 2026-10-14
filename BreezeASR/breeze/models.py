@@ -16,3 +16,6 @@ class Transcript:
     model: str
     device: str
     created_at: str
+    title: str = ""
+    tags: tuple[str, ...] = ()
+    summary_filename: str = ""

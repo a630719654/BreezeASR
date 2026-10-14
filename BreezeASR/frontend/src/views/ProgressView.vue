@@ -84,7 +84,7 @@ onUnmounted(stopPolling);
         <RouterLink id="back-home" class="text-link" to="/">{{ backLabel }}</RouterLink>
       </section>
 
-      <TranscriptCard v-if="record" :record="record" />
+      <TranscriptCard v-if="record" :record="record" variant="summary" />
     </div>
   </div>
 </template>
