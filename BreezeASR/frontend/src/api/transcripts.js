@@ -14,6 +14,12 @@ export function deleteTranscript(transcriptId) {
   });
 }
 
+export function suggestTranscriptTags(transcriptId) {
+  return request(`/api/transcripts/${encodeURIComponent(transcriptId)}/tags/suggest`, {
+    method: "POST",
+  });
+}
+
 export function updateTranscriptTags(transcriptId, tags) {
   return request(`/api/transcripts/${encodeURIComponent(transcriptId)}/tags`, {
     method: "PUT",
@@ -27,5 +33,25 @@ export function updateTranscriptTitle(transcriptId, title) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
+  });
+}
+
+export function updateTranscriptSummary(transcriptId, summary) {
+  return request(`/api/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ summary }),
+  });
+}
+
+export function deleteTranscriptSummary(transcriptId) {
+  return request(`/api/transcripts/${encodeURIComponent(transcriptId)}/summary`, {
+    method: "DELETE",
+  });
+}
+
+export function regenerateTranscriptSummary(transcriptId) {
+  return request(`/api/transcripts/${encodeURIComponent(transcriptId)}/summary/regenerate`, {
+    method: "POST",
   });
 }

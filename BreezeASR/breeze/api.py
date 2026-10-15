@@ -27,6 +27,10 @@ class TitleUpdate(BaseModel):
     title: str
 
 
+class SummaryUpdate(BaseModel):
+    summary: str
+
+
 def create_app(
     service: TranscriptionService,
     auth: AuthService,
@@ -155,6 +159,7 @@ def create_app(
             record,
             user.id,
             summary=service.read_summary(user.id, record),
+            summary_log=service.summary_log(user.id, record.id),
         )
 
     @app.delete("/api/transcripts/{transcript_id}")
@@ -175,6 +180,17 @@ def create_app(
             raise HTTPException(status_code=404, detail="找不到逐字稿")
         return _public_transcript(record, user.id)
 
+    @app.post("/api/transcripts/{transcript_id}/tags/suggest")
+    def suggest_transcript_tags(transcript_id: str, request: Request):
+        user = current_user(request)
+        try:
+            tags = service.suggest_tags(user.id, transcript_id)
+        except RequestError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if tags is None:
+            raise HTTPException(status_code=404, detail="找不到逐字稿")
+        return {"tags": tags}
+
     @app.put("/api/transcripts/{transcript_id}/title")
     def replace_transcript_title(transcript_id: str, payload: TitleUpdate, request: Request):
         user = current_user(request)
@@ -185,6 +201,54 @@ def create_app(
         if record is None:
             raise HTTPException(status_code=404, detail="找不到逐字稿")
         return _public_transcript(record, user.id)
+
+    @app.put("/api/transcripts/{transcript_id}/summary")
+    def replace_transcript_summary(transcript_id: str, payload: SummaryUpdate, request: Request):
+        user = current_user(request)
+        try:
+            record = service.replace_summary(user.id, transcript_id, payload.summary)
+        except RequestError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if record is None:
+            raise HTTPException(status_code=404, detail="找不到逐字稿")
+        return _public_transcript(
+            record,
+            user.id,
+            summary=service.read_summary(user.id, record),
+            summary_log=service.summary_log(user.id, record.id),
+        )
+
+    @app.delete("/api/transcripts/{transcript_id}/summary")
+    def delete_transcript_summary(transcript_id: str, request: Request):
+        user = current_user(request)
+        try:
+            record = service.delete_summary(user.id, transcript_id)
+        except RequestError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if record is None:
+            raise HTTPException(status_code=404, detail="找不到逐字稿")
+        return _public_transcript(
+            record,
+            user.id,
+            summary=service.read_summary(user.id, record),
+            summary_log=service.summary_log(user.id, record.id),
+        )
+
+    @app.post("/api/transcripts/{transcript_id}/summary/regenerate")
+    def regenerate_transcript_summary(transcript_id: str, request: Request):
+        user = current_user(request)
+        try:
+            record = service.regenerate_summary(user.id, transcript_id)
+        except RequestError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        if record is None:
+            raise HTTPException(status_code=404, detail="找不到逐字稿")
+        return _public_transcript(
+            record,
+            user.id,
+            summary=service.read_summary(user.id, record),
+            summary_log=service.summary_log(user.id, record.id),
+        )
 
     def spa():
         index = web_dir / "index.html"
@@ -245,6 +309,7 @@ def _public_transcript(
     owner_id: str,
     *,
     summary: str | None = None,
+    summary_log: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload = asdict(record)
     payload.pop("summary_filename", None)
@@ -252,6 +317,8 @@ def _public_transcript(
     payload["json_file"] = f"{owner_id}/{record.id}.json"
     if summary is not None:
         payload["summary"] = summary
+    if summary_log is not None:
+        payload["summary_log"] = summary_log
     return payload
 
 

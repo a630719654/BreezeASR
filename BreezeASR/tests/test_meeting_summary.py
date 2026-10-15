@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-from breeze.meeting_summary.client import OllamaChatClient
+from breeze.meeting_summary.client import OllamaChatClient, resolve_model_name
 from breeze.meeting_summary.errors import SummaryError
 from breeze.meeting_summary.export import export_markdown
 from breeze.meeting_summary.io import read_transcript_file
@@ -95,10 +95,37 @@ class MeetingSummaryUnitTest(unittest.TestCase):
         response = MagicMock()
         response.status_code = 404
         response.text = "model not found"
-        with patch("breeze.meeting_summary.client.requests.post", return_value=response):
+        tags = MagicMock()
+        tags.status_code = 200
+        tags.json.return_value = {"models": []}
+        with (
+            patch("breeze.meeting_summary.client.requests.post", return_value=response),
+            patch("breeze.meeting_summary.client.requests.get", return_value=tags),
+        ):
             with self.assertRaises(SummaryError) as caught:
                 OllamaChatClient().summarize("x", source_name="a.txt", created_at="t")
-        self.assertIn("ollama pull qwen2.5", str(caught.exception))
+        self.assertIn("ollama pull llama3.1:8b", str(caught.exception))
+
+    def test_bare_name_uses_installed_8b_tag(self):
+        self.assertEqual(resolve_model_name("llama3.1", ["llama3.1:8b"]), "llama3.1:8b")
+        self.assertIsNone(resolve_model_name("llama3.1:70b", ["llama3.1:8b"]))
+        missing = MagicMock()
+        missing.status_code = 404
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.iter_lines.return_value = [
+            json.dumps({"message": {"content": "# 會議紀錄"}, "done": True})
+        ]
+        tags = MagicMock()
+        tags.status_code = 200
+        tags.json.return_value = {"models": [{"name": "llama3.1:8b"}]}
+        with (
+            patch("breeze.meeting_summary.client.requests.post", side_effect=[missing, ok]) as post,
+            patch("breeze.meeting_summary.client.requests.get", return_value=tags),
+        ):
+            text = OllamaChatClient(model="llama3.1").summarize("x", source_name="a.txt", created_at="t")
+        self.assertEqual(text, "# 會議紀錄")
+        self.assertEqual(post.call_args_list[1].kwargs["json"]["model"], "llama3.1:8b")
 
 
 class MeetingSummaryPipelineTest(unittest.TestCase):

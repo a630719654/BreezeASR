@@ -1,11 +1,13 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
-import { SUGGESTED_TAGS } from "../tags/suggested.js";
 
 const props = defineProps({
   open: { type: Boolean, default: false },
   currentTags: { type: Array, default: () => [] },
   previousTags: { type: Array, default: () => [] },
+  suggestedTags: { type: Array, default: () => [] },
+  suggesting: { type: Boolean, default: false },
+  suggestError: { type: String, default: "" },
 });
 
 const emit = defineEmits(["close", "add"]);
@@ -19,9 +21,9 @@ function unused(tags) {
   return (tags || []).filter((tag) => !used.has(String(tag).toLocaleLowerCase("zh-Hant")));
 }
 
-const suggested = computed(() => unused(SUGGESTED_TAGS));
+const suggested = computed(() => unused(props.suggestedTags));
 const previous = computed(() => {
-  const suggestedKeys = new Set(SUGGESTED_TAGS.map((tag) => tag.toLocaleLowerCase("zh-Hant")));
+  const suggestedKeys = new Set(suggested.value.map((tag) => String(tag).toLocaleLowerCase("zh-Hant")));
   return unused(props.previousTags).filter((tag) => !suggestedKeys.has(String(tag).toLocaleLowerCase("zh-Hant")));
 });
 const atLimit = computed(() => (props.currentTags || []).length >= 8);
@@ -104,7 +106,9 @@ function onClose() {
     </form>
     <section class="add-tag-group">
       <h3>建議標籤</h3>
-      <div v-if="suggested.length" class="tag-chip-row">
+      <p v-if="suggesting" class="hint">正在依這份內容推薦標籤。</p>
+      <p v-else-if="suggestError" class="error">{{ suggestError }}</p>
+      <div v-else-if="suggested.length" class="tag-chip-row">
         <button
           v-for="tag in suggested"
           :key="`suggest-${tag}`"
@@ -116,7 +120,7 @@ function onClose() {
           {{ tag }}
         </button>
       </div>
-      <p v-else class="hint">目前沒有可選的建議標籤。</p>
+      <p v-else class="hint">這份內容沒有可推薦的標籤。</p>
     </section>
     <section class="add-tag-group">
       <h3>以往標籤</h3>

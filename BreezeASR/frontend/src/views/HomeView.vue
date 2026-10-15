@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { createJob } from "../api/jobs";
-import { deleteTranscript, getTranscript, listTranscripts, updateTranscriptTags, updateTranscriptTitle } from "../api/transcripts";
+import { deleteTranscript, deleteTranscriptSummary, getTranscript, listTranscripts, regenerateTranscriptSummary, suggestTranscriptTags, updateTranscriptSummary, updateTranscriptTags, updateTranscriptTitle } from "../api/transcripts";
 import AddTagDialog from "../components/AddTagDialog.vue";
 import AddTagMenu from "../components/AddTagMenu.vue";
 import AppTopbar from "../components/AppTopbar.vue";
@@ -26,6 +26,11 @@ const history = ref([]);
 const historyError = ref("");
 const openRecord = ref(null);
 const addingTag = ref(false);
+const suggestedTags = ref([]);
+const suggesting = ref(false);
+const suggestError = ref("");
+const summaryBusy = ref(false);
+let suggestToken = 0;
 const {
   nameQuery,
   dateQuery,
@@ -45,6 +50,7 @@ function replaceRecord(record) {
     }
     const next = { ...item, ...record };
     delete next.summary;
+    delete next.summary_log;
     return next;
   });
   if (openRecord.value && openRecord.value.id === record.id) {
@@ -92,8 +98,8 @@ async function onSubmit() {
 
 async function onDelete(item) {
   const confirmed = await askConfirm({
-    title: "確定刪除這筆逐字稿？",
-    body: `${item.source_filename} 會從 JSON 紀錄裡移除，刪除後無法復原。`,
+    title: "確定刪除這筆會議紀錄？",
+    body: `${item.title || item.source_filename} 會從列表移除，刪除前的摘要會留在日誌。`,
     confirmLabel: "確定刪除",
   });
   if (!confirmed) {
@@ -103,7 +109,7 @@ async function onDelete(item) {
     await deleteTranscript(item.id);
     if (openRecord.value && openRecord.value.id === item.id) {
       openRecord.value = null;
-      addingTag.value = false;
+      closeAddTag();
     }
     status.value = "已刪除逐字稿。";
     await loadHistory();
@@ -113,6 +119,44 @@ async function onDelete(item) {
       return;
     }
     status.value = error.message || "刪除失敗";
+  }
+}
+
+function closeAddTag() {
+  suggestToken += 1;
+  addingTag.value = false;
+  suggesting.value = false;
+}
+
+async function openAddTag() {
+  const record = openRecord.value;
+  if (!record) {
+    return;
+  }
+  addingTag.value = true;
+  suggestedTags.value = [];
+  suggestError.value = "";
+  suggesting.value = true;
+  const token = ++suggestToken;
+  try {
+    const result = await suggestTranscriptTags(record.id);
+    if (token !== suggestToken) {
+      return;
+    }
+    suggestedTags.value = Array.isArray(result.tags) ? result.tags : [];
+  } catch (error) {
+    if (token !== suggestToken) {
+      return;
+    }
+    if (error.status === 401) {
+      await router.push("/login");
+      return;
+    }
+    suggestError.value = error.message || "無法推薦標籤";
+  } finally {
+    if (token === suggestToken) {
+      suggesting.value = false;
+    }
   }
 }
 
@@ -140,6 +184,60 @@ async function onTitleChange(item, title) {
       return;
     }
     status.value = error.message || "標題更新失敗";
+  }
+}
+
+async function onSaveSummary(item, summary) {
+  try {
+    const record = await updateTranscriptSummary(item.id, summary);
+    replaceRecord(record);
+    status.value = "已更新會議紀錄。";
+  } catch (error) {
+    if (error.status === 401) {
+      await router.push("/login");
+      return;
+    }
+    status.value = error.message || "會議紀錄更新失敗";
+  }
+}
+
+async function onDeleteSummary(item) {
+  const confirmed = await askConfirm({
+    title: "確定刪除這份摘要？",
+    body: "目前摘要會清掉，刪除前的內容會留在日誌。",
+    confirmLabel: "確定刪除",
+  });
+  if (!confirmed) {
+    return;
+  }
+  try {
+    const record = await deleteTranscriptSummary(item.id);
+    replaceRecord(record);
+    status.value = "已刪除摘要。";
+  } catch (error) {
+    if (error.status === 401) {
+      await router.push("/login");
+      return;
+    }
+    status.value = error.message || "摘要刪除失敗";
+  }
+}
+
+async function onRegenerate(item) {
+  summaryBusy.value = true;
+  status.value = "正在重新生成摘要。";
+  try {
+    const record = await regenerateTranscriptSummary(item.id);
+    replaceRecord(record);
+    status.value = "已重新生成摘要。";
+  } catch (error) {
+    if (error.status === 401) {
+      await router.push("/login");
+      return;
+    }
+    status.value = error.message || "重新生成失敗";
+  } finally {
+    summaryBusy.value = false;
   }
 }
 
@@ -183,16 +281,23 @@ onMounted(loadHistory);
 
       <SummaryDialog
         :record="openRecord"
-        @close="openRecord = null; addingTag = false"
+        :busy="summaryBusy"
+        @close="openRecord = null; closeAddTag()"
         @title-change="onTitleChange(openRecord, $event)"
-        @add-tag="addingTag = true"
+        @add-tag="openAddTag"
         @tags-change="onTagsChange(openRecord, $event)"
+        @save-summary="onSaveSummary(openRecord, $event)"
+        @delete-summary="onDeleteSummary(openRecord)"
+        @regenerate="onRegenerate(openRecord)"
       />
       <AddTagDialog
         :open="addingTag"
         :current-tags="openRecord ? openRecord.tags : []"
         :previous-tags="allTags"
-        @close="addingTag = false"
+        :suggested-tags="suggestedTags"
+        :suggesting="suggesting"
+        :suggest-error="suggestError"
+        @close="closeAddTag"
         @add="onTagsChange(openRecord, [...(openRecord.tags || []), $event])"
       />
 

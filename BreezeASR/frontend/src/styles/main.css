@@ -674,6 +674,13 @@ button.icon-btn[aria-pressed="true"] {
   color: var(--ink);
 }
 
+.summary-head-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+}
+
 .summary-dialog .section-head {
   margin-bottom: 0.85rem;
   align-items: flex-start;
@@ -752,6 +759,97 @@ button.tag-chip.summary-add-tag {
   margin: 0.9rem 0 0;
   border: 0;
   border-top: 1px solid var(--line);
+}
+
+.summary-log-row,
+.summary-view-bar,
+.summary-editor-actions,
+.summary-regenerate {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.summary-log-row {
+  justify-content: space-between;
+  margin-top: 0.85rem;
+}
+
+.summary-log-links,
+.summary-log-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+button.summary-log-link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.18rem;
+}
+
+button.summary-log-link:hover {
+  background: transparent;
+  color: var(--ink);
+}
+
+.summary-view-bar {
+  justify-content: space-between;
+  margin-top: 0.85rem;
+}
+
+.summary-view-bar .hint {
+  margin: 0;
+}
+
+.summary-version-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.summary-editor {
+  margin: 0.9rem 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.summary-editor textarea {
+  width: 100%;
+  min-height: 16rem;
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.summary-source {
+  margin: 0.9rem 0 0;
+  color: var(--ink-secondary);
+  font-size: 1.02rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.summary-regenerate {
+  justify-content: flex-end;
+  margin-top: 1.25rem;
 }
 
 .summary-markdown {

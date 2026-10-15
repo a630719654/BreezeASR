@@ -1,18 +1,33 @@
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { formatTranscriptDate, transcriptTitle } from "../composables/useTranscriptFilters";
 import MarkdownBody from "./MarkdownBody.vue";
 
 const props = defineProps({
   record: { type: Object, default: null },
+  busy: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["close", "title-change", "add-tag", "tags-change"]);
+const emit = defineEmits(["close", "title-change", "add-tag", "tags-change", "save-summary", "delete-summary", "regenerate"]);
 const dialogEl = ref(null);
 const titleInput = ref(null);
+const summaryInput = ref(null);
 const editingTitle = ref(false);
+const editingSummary = ref(false);
 const titleDraft = ref("");
+const summaryDraft = ref("");
 const titleError = ref("");
+const summaryError = ref("");
+const view = ref("summary");
+const historyAction = ref("edit");
+const historyIndex = ref(0);
+
+const historyVersions = computed(() => {
+  const versions = (props.record && props.record.summary_log && props.record.summary_log.versions) || [];
+  return versions.filter((item) => item.action === historyAction.value);
+});
+
+const selectedHistory = computed(() => historyVersions.value[historyIndex.value] || null);
 
 watch(
   () => props.record,
@@ -28,8 +43,7 @@ watch(
       }
       return;
     }
-    editingTitle.value = false;
-    titleError.value = "";
+    resetDrafts();
     if (el.open) {
       el.close();
     }
@@ -39,11 +53,21 @@ watch(
 watch(
   () => props.record && props.record.id,
   () => {
-    editingTitle.value = false;
-    titleDraft.value = "";
-    titleError.value = "";
+    resetDrafts();
   },
 );
+
+function resetDrafts() {
+  editingTitle.value = false;
+  editingSummary.value = false;
+  titleDraft.value = "";
+  summaryDraft.value = "";
+  titleError.value = "";
+  summaryError.value = "";
+  view.value = "summary";
+  historyAction.value = "edit";
+  historyIndex.value = 0;
+}
 
 async function startEditTitle() {
   titleDraft.value = transcriptTitle(props.record);
@@ -75,6 +99,63 @@ function removeTag(tag) {
     "tags-change",
     (props.record.tags || []).filter((value) => value !== tag),
   );
+}
+
+function showTranscript() {
+  editingSummary.value = false;
+  view.value = view.value === "transcript" ? "summary" : "transcript";
+}
+
+function historyTitle(action) {
+  if (action === "regenerate") {
+    return "重新生成紀錄";
+  }
+  if (action === "delete") {
+    return "刪除紀錄";
+  }
+  return "編輯紀錄";
+}
+
+function historyLabel(action) {
+  if (action === "regenerate") {
+    return "重新編輯";
+  }
+  if (action === "delete") {
+    return "已刪除";
+  }
+  return "已編輯";
+}
+
+function showHistory(action) {
+  editingSummary.value = false;
+  historyAction.value = action;
+  historyIndex.value = 0;
+  view.value = "history";
+}
+
+async function startEditSummary() {
+  summaryDraft.value = props.record.summary || "";
+  summaryError.value = "";
+  view.value = "summary";
+  editingSummary.value = true;
+  await nextTick();
+  summaryInput.value?.focus();
+}
+
+function cancelEditSummary() {
+  editingSummary.value = false;
+  summaryError.value = "";
+}
+
+function saveSummary() {
+  const summary = summaryDraft.value.trim();
+  if (!summary) {
+    summaryError.value = "會議紀錄不能是空白";
+    return;
+  }
+  emit("save-summary", summary);
+  editingSummary.value = false;
+  summaryError.value = "";
 }
 </script>
 
@@ -112,7 +193,12 @@ function removeTag(tag) {
         </button>
       </div>
       <h2 v-else>會議記錄摘要</h2>
-      <button type="button" class="ghost compact" @click="emit('close')">關閉</button>
+      <div class="summary-head-tools">
+        <button v-if="record" type="button" class="ghost compact" @click="showTranscript">
+          {{ view === "transcript" ? "會議摘要" : "逐字稿原稿" }}
+        </button>
+        <button type="button" class="ghost compact" @click="emit('close')">關閉</button>
+      </div>
     </div>
     <p v-if="titleError" class="error tag-add-error">{{ titleError }}</p>
     <p v-if="!record" class="empty">讀取中。</p>
@@ -152,7 +238,89 @@ function removeTag(tag) {
         {{ formatTranscriptDate(record.created_at) }}
       </p>
       <hr class="summary-dialog-rule">
-      <MarkdownBody :source="record.summary || ''" />
+      <div v-if="view === 'summary' && !editingSummary" class="summary-log-row">
+        <div class="summary-log-links">
+          <button
+            v-if="record.summary_log && record.summary_log.edited"
+            type="button"
+            class="summary-log-link"
+            @click="showHistory('edit')"
+          >
+            已編輯
+          </button>
+          <button
+            v-if="record.summary_log && record.summary_log.regenerated"
+            type="button"
+            class="summary-log-link"
+            @click="showHistory('regenerate')"
+          >
+            重新編輯
+          </button>
+          <button
+            v-if="record.summary_log && record.summary_log.deleted"
+            type="button"
+            class="summary-log-link"
+            @click="showHistory('delete')"
+          >
+            已刪除
+          </button>
+        </div>
+        <div class="summary-log-actions">
+          <button type="button" class="ghost compact" @click="startEditSummary">修改紀錄</button>
+          <button
+            v-if="(record.summary || '').trim()"
+            type="button"
+            class="danger compact"
+            @click="emit('delete-summary')"
+          >
+            刪除摘要
+          </button>
+        </div>
+      </div>
+      <form v-if="editingSummary" class="summary-editor" @submit.prevent="saveSummary">
+        <textarea
+          ref="summaryInput"
+          v-model="summaryDraft"
+          aria-label="會議紀錄"
+          @keydown.esc.prevent="cancelEditSummary"
+        ></textarea>
+        <p v-if="summaryError" class="error tag-add-error">{{ summaryError }}</p>
+        <div class="summary-editor-actions">
+          <button type="submit" class="compact">儲存</button>
+          <button type="button" class="ghost compact" @click="cancelEditSummary">取消</button>
+        </div>
+      </form>
+      <template v-else-if="view === 'transcript'">
+        <div class="summary-view-bar">
+          <p class="hint">逐字稿原稿</p>
+        </div>
+        <p class="summary-source">{{ record.text || "（沒有逐字稿）" }}</p>
+      </template>
+      <template v-else-if="view === 'history'">
+        <div class="summary-view-bar">
+          <p class="hint">{{ historyTitle(historyAction) }}</p>
+          <button type="button" class="ghost compact" @click="view = 'summary'">回到會議摘要</button>
+        </div>
+        <div v-if="historyVersions.length" class="summary-version-list">
+          <button
+            v-for="(item, index) in historyVersions"
+            :key="`${item.action}-${item.at}-${index}`"
+            type="button"
+            class="tag-chip"
+            :aria-pressed="index === historyIndex"
+            @click="historyIndex = index"
+          >
+            {{ historyLabel(item.action) }} {{ formatTranscriptDate(item.at) }}
+          </button>
+        </div>
+        <MarkdownBody :source="selectedHistory ? selectedHistory.summary : ''" empty="（這版沒有留下摘要）" />
+      </template>
+      <MarkdownBody v-else :source="record.summary || ''" />
+      <div v-if="view !== 'transcript' && !editingSummary" class="summary-regenerate">
+        <button type="button" :disabled="busy" @click="emit('regenerate')">
+          {{ busy ? "正在重新生成…" : "重新生成摘要" }}
+        </button>
+      </div>
     </template>
   </dialog>
 </template>

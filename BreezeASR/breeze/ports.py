@@ -39,6 +39,10 @@ class MeetingSummarizer(Protocol):
     def summarize_transcript(self, transcript: Transcript, output_dir: Path) -> Path: ...
 
 
+class TagSuggester(Protocol):
+    def suggest(self, text: str) -> list[str]: ...
+
+
 class JobRepository(Protocol):
     def create(self, job: Job) -> Job: ...
 

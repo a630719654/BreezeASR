@@ -1,4 +1,4 @@
-"""把本機逐字稿交給 Ollama qwen2.5，產出會議紀錄 Markdown。"""
+"""把本機逐字稿交給 Ollama，產出會議紀錄 Markdown。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from breeze.meeting_summary.service import MeetingSummaryService
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="讀取 .txt / .md 逐字稿，用本機 Ollama qwen2.5 產出會議紀錄。",
+        description=f"讀取 .txt / .md 逐字稿，用本機 Ollama {DEFAULT_MODEL} 產出會議紀錄。",
     )
     parser.add_argument("transcript", type=Path, help="逐字稿路徑（.txt 或 .md）")
     parser.add_argument(
@@ -32,7 +32,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--model",
         default=os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL),
-        help="模型名稱，預設 qwen2.5",
+        help=f"模型名稱，預設 {DEFAULT_MODEL}",
     )
     return parser.parse_args(argv)
 

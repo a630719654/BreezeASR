@@ -7,7 +7,9 @@ from breeze.identity.service import AuthService
 from breeze.identity.store import IdentityStore
 from breeze.jobs import MemoryJobStore
 from breeze.meeting_summary import MeetingSummaryService, OllamaChatClient
+from breeze.meeting_summary.journal import SummaryJournal
 from breeze.service import TranscriptionService
+from breeze.tag_suggest import LlmTagSuggester
 from breeze.settings import load_settings
 from breeze.store import UserTranscriptStores
 
@@ -19,6 +21,15 @@ auth = AuthService(
     lockout_seconds=settings.lockout_seconds,
     session_hours=settings.session_hours,
 )
+
+ollama_kwargs = {
+    "host": os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
+    "temperature": 0.2,
+}
+if "OLLAMA_MODEL" in os.environ:
+    ollama_kwargs["model"] = os.environ["OLLAMA_MODEL"]
+chat = OllamaChatClient(**ollama_kwargs)
+
 service = TranscriptionService(
     converter=FfmpegConverter(settings.ffmpeg_path),
     recognizer=BreezeRecognizer(settings.model_dir),
@@ -26,13 +37,9 @@ service = TranscriptionService(
     jobs=MemoryJobStore(),
     allowed_suffixes=settings.allowed_suffixes,
     max_upload_bytes=settings.max_upload_bytes,
-    summarizer=MeetingSummaryService(
-        OllamaChatClient(
-            host=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434"),
-            model=os.environ.get("OLLAMA_MODEL", "qwen2.5"),
-            temperature=0.2,
-        )
-    ),
+    summarizer=MeetingSummaryService(chat),
     summaries_dir=settings.summaries_dir,
+    summary_journal=SummaryJournal(settings.summary_logs_dir),
+    tag_suggester=LlmTagSuggester(chat),
 )
 app = create_app(service, auth, settings.web_dir)
